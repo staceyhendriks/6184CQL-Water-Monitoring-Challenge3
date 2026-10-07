@@ -1,0 +1,865 @@
+
+--- 
+title: "CQL 2026 Challenge 3 - Monitoring Summary"
+output: 
+  html_document:
+    theme: flatly
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+date: "`r format(Sys.time(),'%Y-%m-%d %H:%M', tz='Pacific/Auckland')`"
+resource_files:
+  - .Renviron
+---
+
+```{r loadlibraries, include = FALSE}
+
+library(tidyverse)
+library(odbc)
+library(DBI)
+library(lubridate)
+library(kableExtra)
+library(rmarkdown)
+library(bookdown)
+library(knitr)
+library(tables)
+library(tibble)
+library(dplyr)
+
+#smaxtec API
+library(httr)
+library(rlist)
+library(jsonlite)
+library(purrr)
+
+#snowflake
+library(odbc)
+library(DBI)
+
+```
+
+```{r tribblechallenge3, include = FALSE}
+
+#Challenge 3 Treatments
+
+challenge3_cows <- tribble(
+  ~COWID, ~BIRTHID,       ~SMAXTEC_ID, ~CHALLENGE3,
+  "4678", "LHMH-24-4678", "LHMH244678", "12hNoWater",
+  "3668", "LHMH-23-3668", "LHMH233668", "12hNoWater",
+  "2658", "LHMH-22-2658", "LHMH222658", "12hNoWater",
+  "4183", "LHMH-24-4183", "LHMH244183", "12hNoWater",
+  "3636", "LHMH-23-3636", "LHMH233636", "12hNoWater",
+  "3612", "LHMH-23-3612", "LHMH233612", "12hNoWater",
+  "4177", "LHMH-24-4177", "LHMH244177", "12hNoWater",
+  "3675", "LHMH-23-3675", "LHMH233675", "12hNoWater",
+  "601",  "JYTK-20-601",  "JYTK20601",  "12hNoWater",
+  "625",  "JYTK-20-625",  "JYTK20625",  "12hNoWater",
+  "2176", "LHMH-22-2176", "LHMH222176", "12hNoWater",
+  "2670", "LHMH-22-2670", "LHMH222670", "12hNoWater",
+  "4624", "LHMH-24-4624", "LHMH244624", "12hNoWater",
+  "2178", "LHMH-22-2178", "LHMH222178", "12hNoWater",
+  "2673", "LHMH-22-2673", "LHMH222673", "12hNoWater",
+  "1634", "LHMH-21-1634", "LHMH211634", "12hNoWater",
+  "665",  "JYTK-20-665",  "JYTK20665",  "12hNoWater",
+  "671",  "JYTK-20-671",  "JYTK20671",  "12hNoWater",
+  "677",  "JYTK-20-677",  "JYTK20677",  "12hNoWater",
+  "4601", "LHMH-24-4601", "LHMH244601", "12hNoWater",
+  "7673", "JYTK-17-7673", "JYTK177673", "12hNoWater",
+  "7681", "JYTK-17-7681", "JYTK177681", "12hNoWater",
+
+  "2638", "LHMH-22-2638", "LHMH222638", "Control",
+  "3667", "LHMH-23-3667", "LHMH233667", "Control",
+  "4676", "LHMH-24-4676", "LHMH244676", "Control",
+  "4155", "LHMH-24-4155", "LHMH244155", "Control",
+  "3679", "LHMH-23-3679", "LHMH233679", "Control",
+  "2671", "LHMH-22-2671", "LHMH222671", "Control",
+  "8155", "LHMH-18-8155", "LHMH188155", "Control",
+  "3652", "LHMH-23-3652", "LHMH233652", "Control",
+  "2646", "LHMH-22-2646", "LHMH222646", "Control",
+  "3629", "LHMH-23-3629", "LHMH233629", "Control",
+  "1682", "LHMH-21-1682", "LHMH211682", "Control",
+  "1653", "LHMH-21-1653", "LHMH211653", "Control",
+  "4156", "LHMH-24-4156", "LHMH244156", "Control",
+  "4158", "LHMH-24-4158", "LHMH244158", "Control",
+  "1687", "LHMH-21-1687", "LHMH211687", "Control",
+  "9637", "JYTK-19-9637", "JYTK199637", "Control",
+  "2629", "LHMH-22-2629", "LHMH222629", "Control",
+  "9614", "JYTK-19-9614", "JYTK199614", "Control",
+  "605",  "JYTK-20-605",  "JYTK20605",  "Control",
+  "2159", "LHMH-22-2159", "LHMH222159", "Control",
+  "636",  "JYTK-20-636",  "JYTK20636",  "Control",
+
+  "3680", "LHMH-23-3680", "LHMH233680", "LowFlow",
+  "3663", "LHMH-23-3663", "LHMH233663", "LowFlow",
+  "2147", "LHMH-22-2147", "LHMH222147", "LowFlow",
+  "4152", "LHMH-24-4152", "LHMH244152", "LowFlow",
+  "3681", "LHMH-23-3681", "LHMH233681", "LowFlow",
+  "4609", "LHMH-24-4609", "LHMH244609", "LowFlow",
+  "2170", "LHMH-22-2170", "LHMH222170", "LowFlow",
+  "3106", "LHMH-23-3106", "LHMH233106", "LowFlow",
+  "691",  "JYTK-20-691",  "JYTK20691",  "LowFlow",
+  "4172", "LHMH-24-4172", "LHMH244172", "LowFlow",
+  "1606", "LHMH-21-1606", "LHMH211606", "LowFlow",
+  "8265", "RRMN-18-8265", "RRMN188265", "LowFlow",
+  "1661", "LHMH-21-1661", "LHMH211661", "LowFlow",
+  "9688", "JYTK-19-9688", "JYTK199688", "LowFlow",
+  "9648", "JYTK-19-9648", "JYTK199648", "LowFlow",
+  "4610", "LHMH-24-4610", "LHMH244610", "LowFlow",
+  "1642", "LHMH-21-1642", "LHMH211642", "LowFlow",
+  "2114", "LHMH-22-2114", "LHMH222114", "LowFlow",
+  "2645", "LHMH-22-2645", "LHMH222645", "LowFlow",
+  "1639", "LHMH-21-1639", "LHMH211639", "LowFlow",
+  "606",  "JYTK-20-606",  "JYTK20606",  "LowFlow",
+  "3648", "LHMH-23-3648", "LHMH233648", "Control",
+  "2137", "LHMH-22-2137", "LHMH222137", "LowFlow"
+) %>% 
+  mutate(COWID = as.numeric(COWID))
+
+```
+
+```{r apismaxtecconnect, include = FALSE}
+
+#Basic testing
+#https://api.smaxtec.com/documentation/integration/authentication/
+
+# Get security token
+
+#Stores your password in an environment variable called AG_API_PW.
+Sys.setenv(AG_API_PW="smaxtec_cql6184!")
+uid <-"stacey.hendriks@dairynz.co.nz"
+
+#Sends an HTTP POST request to smaXtec.
+resp <- POST("https://api.smaxtec.com/integration/v2/users/session_token?",
+             query = list(user = uid, password = Sys.getenv("AG_API_PW")))
+
+print(status_code(resp))
+
+stop_for_status(resp)
+
+token <- content(resp)$token
+
+cat("Token received:", !is.null(token), "\n")
+cat("Token length:", nchar(token), "\n")
+
+```
+
+```{r apismaxtecload, include = FALSE}
+
+# Get metrics and animal data [for organisation 5fa1d66ea4a136b0b30df2b1]
+
+to_date            <-"2026-12-12T00:00:00"
+from_date          <-"2026-08-30T00:00:00"
+aggregation_period <-"hourly"
+timezone           <-"Pacific/Auckland"
+timestamp_format   <-"iso"
+# Metrics to pull down 
+metric <-"water_intake"
+
+#Need to create a loop that for this last step cycles through each animal you want data for as well as each metric
+
+get_smaxtec_data<-function(animal_id, metric, token){
+  
+url<-paste0(
+    "https://api.smaxtec.com/integration/v2/organisations/",
+    "5fa1d66ea4a136b0b30df2b1",
+    "/animals/",
+    animal_id,
+    "/data.json")
+
+cat("URL:", url, "\n")
+  
+resp <- GET(url,
+            query = list(
+              to_date = to_date,
+              aggregation_period = aggregation_period,
+              from_date = from_date,
+              timezone = timezone,
+              timestamp_format = timestamp_format,
+              metrics = metric
+              ),
+              add_headers(
+              Accept="application/json", 
+              Authorization=paste("Bearer", token)
+              )
+  )
+  
+stop_for_status(resp)
+  
+result<-content(resp,
+          as = 'parsed',
+          type = 'application/json') 
+
+purrr::map_dfr(
+  result[[1]]$data,
+  ~tibble(
+    timestamp = .x[[1]],
+    value = .x[[2]]
+  )
+) %>% 
+  
+  mutate(animal_id = animal_id,
+         metric = result[[1]]$metric,
+         unit = result[[1]]$unit
+         
+         )
+}
+
+#Pull trial cows
+
+water_data <- purrr::map_dfr(
+  challenge3_cows$SMAXTEC_ID,
+  ~ get_smaxtec_data(
+      animal_id = .x,
+      metric = "water_intake",
+      token = token
+    )
+)
+
+
+```
+
+```{r setupscript, include = FALSE}
+
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+
+#DairyNZ Colours
+dairynz<-c("#00461e", "#ebb928", "#00d7ff", "#38A49A", "#fcfdfe", "#7FEBFF",  "#F5DC93", '#70f50a', 'black', '#3c9628', '#CDE9D9')
+
+CalvingStart <-ymd_hms("2026-07-01 00:00:00")
+
+#Combine with cow list and check cow numbers
+
+water_data1<-water_data %>% 
+  left_join(challenge3_cows, by = c('animal_id' = 'SMAXTEC_ID')) %>% 
+  mutate(Date = as.Date(timestamp),
+         DATE_TIME = ymd_hms(timestamp),
+         hour = hour(DATE_TIME))
+
+```
+
+# Water Intakes
+
+## Baseline Data - Herd Level - Water Intakes
+
+First water intake was summarised for each cow daily and then summarised at the herd level
+
+```{r challengemonitor, echo=FALSE, message=FALSE, warning=FALSE}
+
+# Water Intake Data - Digital Cows Only
+
+#Check all cows data available - 66 in dataset
+
+ncows<-water_data1 %>% 
+  distinct(COWID, CHALLENGE3)
+
+#Summarise peak water intake between 1600 to 1700 h
+
+peakvalues<-water_data1 %>%
+  filter(hour == 17) %>% 
+  mutate(Week = isoweek(Date)) %>% 
+  group_by(COWID, Week) %>% 
+  mutate(WeekStartDate = min(Date)) %>% 
+  ungroup() %>% 
+  group_by(WeekStartDate, Date, hour) %>% 
+  summarise(sum = sum(value)) %>% 
+  group_by(WeekStartDate, hour) %>% 
+  summarise(meanpeak = mean(sum)) %>% 
+  select(c(WeekStartDate, meanpeak))
+
+#No. of hourly values - Only complete days included
+
+hourlyvalues<-water_data1 %>% 
+  group_by(COWID, Date) %>% 
+  summarise(n= n()) %>% 
+  filter(n>=23)
+
+#Summarise daily drinking at a cow level
+
+smaxtecWaterIntake<-water_data1 %>% 
+  semi_join(hourlyvalues) %>% 
+  mutate(Week = isoweek(Date)) %>% 
+  group_by(COWID, Week, CHALLENGE3) %>% 
+  mutate(WeekStartDate = min(Date)) %>% 
+  ungroup() %>% 
+  group_by(COWID, WeekStartDate, Week, CHALLENGE3, Date) %>% 
+  summarise(n = n(),
+            sum = sum(value),
+            min = min(value),
+            max = max(value))
+
+#Summarise at the group level by week
+
+averagesbyweek<-smaxtecWaterIntake %>% 
+  group_by(WeekStartDate) %>% 
+  summarise(ndays = n_distinct(Date),
+            mean = mean(sum),
+            median = median(sum),
+            sd = sd(sum),
+            p10 = quantile(sum, 0.1),
+            p90 = quantile(sum, 0.9),
+            min = min(sum),
+            max = max(sum),
+            cv = (sd/mean)*100) %>% 
+  left_join(peakvalues)
+
+
+
+```
+
+```{r herdwater, echo = FALSE}
+
+kable(averagesbyweek, col.names = c('Week Start Date', 'N Days', 'Mean', 'Median', 'SD', 'P10', 'P90', 'Min', 'Max', 'CV', 'Peak'), 
+      caption = '<b>Summary data for individual cow water intake (L/cow per d) for the Digital Welfare Indicators herd from the 1st September.<b>', align = c('l', rep('c', 10))) %>% 
+  add_header_above(c(" " = 1, "Water intake (L/cow per d)" = 9, 'Herd intake' = 1), bold = TRUE) %>% 
+  kable_classic(full_width = T, font_size = 16, html_font = 'Arial') %>% 
+  row_spec(c(0), bold=T)
+
+```
+
+<br>
+
+## Baseline Data - Challenge Group Level - Water Intakes
+
+First water intake was summarised for each cow daily and then summarised at the challenge group level
+
+```{r groupmonitor, include = FALSE}
+
+#Summarise at the group level by week
+
+averagesbyweek_challenge<-smaxtecWaterIntake %>% 
+  group_by(WeekStartDate, CHALLENGE3) %>% 
+  summarise(mean = mean(sum),
+            median = median(sum),
+            sd = sd(sum),
+            p10 = quantile(sum, 0.1),
+            p90 = quantile(sum, 0.9),
+            min = min(sum),
+            max = max(sum),
+            cv = (sd/mean)*100)
+
+```
+
+```{r groupwater, echo = FALSE}
+
+kable(averagesbyweek_challenge, col.names = c('Week Start Date', 'Challenge Grp', 'Mean', 'Median', 'SD', 'P10', 'P90', 'Min', 'Max', 'CV'), 
+      caption = '<b>Summary data for individual cow water intake (L/cow per d) for the Digital Welfare Indicators herd from the 1st September.<b>', align = c(rep('l', 2), rep('c', 8))) %>% 
+  add_header_above(c(" " = 2, "Water intake (L/cow per d)" = 8), bold = TRUE) %>% 
+  kable_classic(full_width = T, font_size = 16, html_font = 'Arial') %>% 
+  row_spec(c(0), bold=T)
+
+```
+
+<br>
+
+```{r weeklymonitorfigure, echo = FALSE, results= 'asis', fig.align='center', fig.cap = 'Weekly mean individual cow water intake at group level from Challenge 3', fig.height=12, fig.width=16}
+
+smaxtecWaterIntake %>% 
+  group_by(WeekStartDate, CHALLENGE3) %>% 
+  summarise(ndays = n_distinct(Date),
+            mean = mean(sum),
+            sd = sd(sum),
+            sem = sd/sqrt(ndays)) %>% 
+  filter(if (Sys.Date() >= as.Date('2026-11-02')) {
+    WeekStartDate >= as.Date('2026-10-26') 
+  } else {
+    TRUE
+  }
+  ) %>% 
+  ggplot(aes(x = WeekStartDate, y = mean, color = CHALLENGE3)) +
+  geom_point(aes(color = CHALLENGE3), size = 3) +
+  geom_errorbar(aes(ymin = mean - sem, ymax = mean + sem), width = 2) +
+  scale_x_date(breaks = sort(unique(averagesbyweek_challenge$WeekStartDate)), date_labels = "%d-%b") +
+  scale_y_continuous(breaks = seq(40, 100, by = 5)) +
+  labs(y = 'Mean water intake, L/d', x = 'Week Start Date') +
+  theme(legend.position = "top",
+        #Axis text
+        axis.text.x = element_text(angle = 45, size = 16, vjust = 1, hjust = 1),
+        axis.text.y = element_text(size = 16),
+        #Axis titles
+        axis.title = element_text(size = 16),
+        #Facets
+        strip.text = element_text(size = 16, face = 'bold'),
+        panel.spacing = unit(1, 'lines'),
+        #Background
+        panel.background = element_blank(),
+        plot.background = element_blank(),
+        #Remove y grid
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        #Borders
+        panel.border = element_rect(color = 'black', fill = NA),
+         #Legend
+        legend.text = element_text(size = 16),
+        legend.title = element_text(size = 16),
+        #Axis Lines
+        axis.line.x = element_line(colour = "black", linewidth = 0.6),
+        axis.line.y = element_line(colour = "black", linewidth = 0.6),
+        axis.ticks = element_line(colour = "black", linewidth = 0.6))
+
+```
+
+<br>
+
+# Monitoring Data - Individual Cow Water Intakes
+
+<br>
+
+If a cow’s daily water intake deviates from her own individual baseline median by more than two times her own baseline CV, expressed as an absolute percentage of her baseline median, she will be flagged for monitoring for another 24 h. If she does not return to her median baseline in 24 h, she will be removed from the 5-day exposure replicate. 
+
+```{r prebaseline, echo=FALSE, message=FALSE, warning=FALSE}
+
+#Summarise daily drinking at a cow level
+
+smaxtecWaterIntake1<-water_data1 %>% 
+  semi_join(hourlyvalues) %>%
+  mutate(TIMEPERIOD = case_when(Date >= as.Date("2026-11-06") & Date <=as.Date("2026-11-19") ~ 'Baseline',
+                                Date >= as.Date("2026-11-20") ~ 'PostBaseline',
+                                TRUE ~ 'PreBaseline')) %>% 
+  group_by(TIMEPERIOD) %>% 
+  mutate(PERIODSTARTDATE = min(Date)) %>%
+  ungroup() %>% 
+  group_by(COWID, Date, TIMEPERIOD, PERIODSTARTDATE) %>% 
+  summarise(n = n(),
+            sum = sum(value, na.rm=T),
+            min = min(value, na.rm=T),
+            max = max(value, na.rm=T))
+
+#Summarise baseline drinking at cow level and filter baseline once it's the 6th November 2026
+
+averagebaseline<-smaxtecWaterIntake1 %>% 
+  group_by(COWID, TIMEPERIOD, PERIODSTARTDATE) %>% 
+  summarise(mean = mean(sum),
+            median = median(sum),
+            sd = sd(sum),
+            cv = (sd/mean)*100) %>% 
+  arrange(COWID) %>% 
+  #Determine upper limits
+  mutate(upper_limit = median + ((2*cv)/100 * median),
+         lower_limit = median - ((2*cv)/100 * median)) %>% 
+  filter(if (Sys.Date() >= as.Date("2026-11-20")) {
+         TIMEPERIOD == 'Baseline'
+          } else { TRUE })
+
+#Challenge data
+
+dailychallenge<-water_data1 %>% 
+  semi_join(hourlyvalues) %>%
+  mutate(Date = as.Date(Date, format='%Y-%m-%d')) %>% 
+  group_by(COWID, Date, CHALLENGE3) %>% 
+  summarise(sum = sum(value, na.rm=T)) %>% 
+  left_join(averagebaseline) %>% 
+  mutate(flagged = sum < lower_limit | sum > upper_limit,
+         high = sum > upper_limit,
+         low = sum < lower_limit)
+  
+```
+
+>**Prior to the 6th November**, the baseline is a pre-experimental baseline of all values between the 2026-08-31 to `r Sys.Date()`.
+
+>**Inclusive of and after the 20th November**, the baseline is the actual baseline from the 2026-11-06 to 2026-11-19.
+
+```{r dailymonitor, echo = FALSE, results= 'asis', fig.align='center', fig.cap = 'Daily individual cow water intake from Challenge 3 start relative to their individual 2 week pre-treatment baseline for the previous 7 days', fig.height=35, fig.width=10}
+
+challenge_colours <- c(
+  "Control" = "orange",
+  "LowFlow" = "darkgreen",
+  "12hNoWater" = "red"
+)
+
+challenge_plots<-dailychallenge %>% 
+  ungroup() %>% 
+  filter(Date >= Sys.Date() - 7 & Date <= Sys.Date()) %>% 
+  arrange(CHALLENGE3, COWID, Date) %>% 
+  group_split(CHALLENGE3) %>% 
+  map(function(df) {
+    
+  challenge_name <- unique(df$CHALLENGE3)
+  challenge_colour <- challenge_colours[as.character(challenge_name)]
+  
+  ggplot(df, aes(x = Date, y = sum)) +
+  geom_line(linewidth = 1) +
+  geom_point(aes(colour = flagged), size = 3) +
+  geom_hline(aes(yintercept = median), linetype = 2) + 
+  geom_hline(aes(yintercept = upper_limit), colour = "red") +
+  geom_hline(aes(yintercept = lower_limit), colour = "red") +
+  geom_text(data = df %>% filter(flagged == TRUE), aes(label = round(sum, 1)), vjust = 0.5, hjust = 1.5, size = 4, fontface = "bold", show.legend = FALSE) +
+  scale_x_date(breaks = sort(unique(dailychallenge$Date)), date_labels = "%d-%b") +
+  facet_wrap(~ COWID, ncol = 2, scales = 'free_y') +
+  labs(title = challenge_name,
+      y = 'Water intake, L/d', x = 'Calendar Date', colour = 'Flagged') +
+  theme(legend.position = "top",
+        plot.title = element_text(size = 18, face = "bold", hjust = 0.5, colour = challenge_colour),
+        #Axis text
+        axis.text.x = element_text(angle = 45, size = 14, vjust = 1, hjust = 1),
+        axis.text.y = element_text(size = 14),
+        #Axis titles
+        axis.title = element_text(size = 16),
+        #Facets
+        strip.text = element_text(size = 14, face = 'bold', colour = 'white'),
+        panel.spacing = unit(1, 'lines'),
+        #Background
+        panel.background = element_blank(),
+        plot.background = element_blank(),
+        strip.background = element_rect(fill = challenge_colour, colour = 'black'),
+        #Remove y grid
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        #Borders
+        panel.border = element_rect(color = 'black', fill = NA),
+         #Legend
+        legend.text = element_text(size = 16),
+        legend.title = element_text(size = 16),
+        #Axis Lines
+        axis.line.x = element_line(colour = "black", linewidth = 0.6),
+        axis.line.y = element_line(colour = "black", linewidth = 0.6),
+        axis.ticks = element_line(colour = "black", linewidth = 0.6))
+  })
+
+walk(challenge_plots, function(p) {
+print(p)
+cat("\n\n<br><br><br>\n\n")
+})
+
+```
+
+## Today's Flagged Cows - Based on Water Intakes
+
+```{r flaggedcows, echo=FALSE, message=FALSE, warning=FALSE}
+
+flag_cows <- function(data,
+                         date = Date,
+                         cow_id = COWID,
+                         intake = sum,
+                         high = high,
+                         low = low,
+                         trt = CHALLENGE3,
+                         flagged = flagged) {
+  
+  result <- data %>%
+    ungroup() %>%
+    filter({{flagged}} == TRUE & {{date}} == Sys.Date() - 1) %>%
+    select(
+      {{ date }},
+      {{ cow_id }},
+      {{ trt }},
+      {{ intake }},
+      {{ high }},
+      {{ low }},
+      {{ flagged }}
+    )
+  
+  if (nrow(result) == 0) {
+    message(
+      paste("No cows flagged on", Sys.Date() - 1)
+    )
+    
+    return(invisible(NULL))
+    
+  } else {
+    return(result)
+  }
+}
+
+flaggedcows <- flag_cows(
+  dailychallenge,
+  date = Date,
+  cow_id = COWID,
+  trt = CHALLENGE3,
+  intake = sum,
+  high = high,
+  low = low,
+  flagged = flagged
+)
+
+if (!is.null(flaggedcows)) {
+  
+  kable(
+    flaggedcows,
+    col.names = c(
+      "Date",
+      "Cow ID",
+      "Treatment",
+      "Water intake, L/d",
+      'High',
+      'Low',
+      'Flagged'
+    ),
+    caption = paste("**Cows flagged on", Sys.Date() - 1, "due to their water intake being +/- 2 CV from their mean baseline 2 weeks before trial start. High is TRUE indicates a higher than baseline value was flagged and Low is TRUE indicates a lower than baseline value was flagged.**"),
+    align = c("l", "l", "l", 'l', 'l', "c", "c")
+  ) %>%
+    kable_classic(
+      full_width = TRUE,
+      font_size = 16,
+      html_font = "Arial"
+    ) %>%
+    row_spec(0, bold = TRUE)
+}
+
+```
+
+<br>
+
+# Monitoring Milk Production
+
+```{r setupanimalbase, include=FALSE}
+
+#Animal Base
+
+SnowflakeCon1 <- DBI::dbConnect(odbc::odbc(),
+                             Driver       = "SnowflakeDSIIDriver",
+                             Server       = "dnz_economics.australia-east.azure.snowflakecomputing.com",
+                             Authenticator = "Externalbrowser",
+                             UID          = "STACEY.HENDRIKS@DAIRYNZ.CO.NZ",
+                             PW = "",
+                             Database     = "BRONZE",
+                             Schema = 'CQL_DIGI_WOODY26',
+                             Warehouse    = "COMPUTE_WH",
+                             Tracing = 4, 
+                             Role = 'ECONOMICS_READER',
+)
+
+#Animal Data
+
+TrialList    <- tbl(SnowflakeCon1, "VW_AB_TRIAL_ANIMAL")
+AnimalList <-tbl(SnowflakeCon1, "VW_AB_ANIMAL") %>% 
+  collect()
+
+TrialGroupID <-tbl(SnowflakeCon1, "VW_AB_TRIAL_GROUP_ANIMAL") %>% 
+  filter(TRIALGROUPID == 1439 | TRIALGROUPID == 1440) %>% 
+  collect() %>% 
+  select(c(ANIMALID, TRIALGROUPID))
+
+TrialTrt<-tbl(SnowflakeCon1, "VW_AB_TRIAL_GROUP") %>% 
+  collect() %>% 
+  select(c(ID, NAME, TRIALID))
+
+CowsEnrolled<-tbl(SnowflakeCon1, "ANIMAL_WOODY_RANDOMISATION") %>% 
+  collect() %>% 
+  right_join(challenge3_cows)
+
+#Pull Milk Production Data from AnimalBase
+
+CowsEnrolled_sf<-copy_to(SnowflakeCon1, CowsEnrolled, temporary = TRUE, overwrite = TRUE)
+
+AnimalBaseMilk <- tbl(SnowflakeCon1, "VW_AB_LACTATION_MILK_RESULT") %>%
+  semi_join(CowsEnrolled_sf, by = "ANIMALID") %>% 
+  left_join(CowsEnrolled_sf, by = "ANIMALID") %>%
+  collect()
+
+#Milk yield since planned start of calving
+
+AnimalBaseMilk1<-AnimalBaseMilk %>% 
+  filter(DATETIMERECORDED >= as.Date("2026-08-30")) %>%
+  mutate(TIMEPERIOD = case_when(DATETIMERECORDED >= as.Date("2026-11-06") & DATETIMERECORDED <=as.Date("2026-11-19") ~ 'Baseline',
+                                DATETIMERECORDED >= as.Date("2026-11-20") ~ 'PostBaseline',
+                                TRUE ~ 'PreBaseline')) %>% 
+  group_by(TIMEPERIOD) %>% 
+  mutate(PERIODSTARTDATE = min(as.Date(DATETIMERECORDED))) %>%
+  ungroup() %>% 
+  select(-ID) %>% 
+  left_join(TrialGroupID) %>% 
+  left_join(TrialTrt, by = c('TRIALGROUPID' = 'ID')) %>% 
+  mutate(DATETIMERECORDED = force_tz(DATETIMERECORDED, tzone = "Pacific/Auckland"),
+         Date = as.Date(DATETIMERECORDED, tz = "Pacific/Auckland"),
+         D_Time = hour(DATETIMERECORDED) + minute(DATETIMERECORDED) / 60,
+         Session = ifelse(D_Time <= 9.5, "AM", "PM"),
+         Date2 = if_else(Session == "PM", Date + 1, Date)) %>%
+  relocate(D_Time, .after = DATETIMERECORDED) %>%
+  relocate(Date, .after = DATETIMERECORDED) %>%
+  relocate(Date2, .after = Date)
+
+```
+
+```{r dailyyields, echo = FALSE}
+
+#Daily Milk Yields - Baseline
+
+AnimalBaseMilk5 <- AnimalBaseMilk1 %>%
+  mutate(PERIODSTARTDATE = min(Date)) %>% 
+  filter(is.na(MILKWEIGHTKG) == FALSE) %>%
+  group_by(COWID, CHALLENGE3, TIMEPERIOD, PERIODSTARTDATE, Date2) %>%
+  #Mean milk weight per cow
+  summarise(MilkWt = sum(MILKWEIGHTKG, na.rm = TRUE), 
+            n = n()) %>% 
+  filter(n == 2) %>% 
+  #Mean milk weight per cow for baseline
+  group_by(COWID, CHALLENGE3, TIMEPERIOD, PERIODSTARTDATE) %>%
+  summarise(Avg_MilkWt = mean(MilkWt, na.rm = TRUE),
+            SDMilkWt = sd(MilkWt, na.rm = TRUE),
+            sem = SDMilkWt / sqrt(sum(!is.na(MilkWt)))) %>%   
+  filter(if (Sys.Date() >= as.Date("2026-11-20")) {
+         TIMEPERIOD == 'Baseline'
+          } else { TRUE })
+
+#Challenge data - Milk Production
+
+dailychallenge_milk<-AnimalBaseMilk1 %>%
+  mutate(PERIODSTARTDATE = min(Date)) %>% 
+  filter(is.na(MILKWEIGHTKG) == FALSE) %>%
+  group_by(COWID, CHALLENGE3, TIMEPERIOD, PERIODSTARTDATE, Date2) %>%
+  #Mean milk weight per cow
+  summarise(MilkWt = sum(MILKWEIGHTKG, na.rm = TRUE), 
+            n = n()) %>% 
+  filter(n == 2) %>% 
+  select(-c(n)) %>% 
+  left_join(AnimalBaseMilk5) %>% 
+  mutate(upper_limit = (Avg_MilkWt*0.20) + Avg_MilkWt,
+         lower_limit = Avg_MilkWt - (Avg_MilkWt*0.20),
+         flagged = MilkWt < lower_limit | MilkWt > upper_limit,
+         high = MilkWt > upper_limit,
+         low = MilkWt < lower_limit)
+
+```
+
+<br>
+
+>**Prior to the 6th November**, the baseline is a pre-experimental baseline of all values between the 2026-08-31 to `r Sys.Date()`.
+
+>**Inclusive of the 20th November**, the baseline is the actual baseline from the 2026-11-06 to 2026-11-19.
+
+```{r dailymonitormilk, echo = FALSE, results= 'asis', fig.align='center', fig.cap = 'Daily individual cow water milk yields from Challenge 3 start relative to their individual 2 week pre-treatment baseline for the previous 7 days', fig.height=35, fig.width=10}
+
+challenge_colours <- c(
+  "Control" = "orange",
+  "LowFlow" = "darkgreen",
+  "12hNoWater" = "red"
+)
+
+challenge_plots_milk<-dailychallenge_milk %>% 
+  ungroup() %>% 
+  filter(Date2 >= Sys.Date() - 14 & Date2 <= Sys.Date()) %>% 
+  arrange(CHALLENGE3, COWID, Date2) %>% 
+  group_split(CHALLENGE3) %>% 
+  map(function(df) {
+    
+  challenge_name <- unique(df$CHALLENGE3)
+  challenge_colour <- challenge_colours[as.character(challenge_name)]
+  
+  ggplot(df, aes(x = Date2, y = MilkWt)) +
+  geom_line(linewidth = 1) +
+  geom_point(aes(colour = flagged), size = 3) +
+  geom_hline(aes(yintercept = Avg_MilkWt), linetype = 2) + 
+  geom_hline(aes(yintercept = upper_limit), colour = "red") +
+  geom_hline(aes(yintercept = lower_limit), colour = "red") +
+  geom_text(data = df %>% filter(flagged == TRUE), aes(label = round(MilkWt, 1)), vjust = 0.5, hjust = 1.5, size = 4, fontface = "bold", show.legend = FALSE) +
+  scale_x_date(breaks = sort(unique(dailychallenge_milk$Date2)), date_labels = "%d-%b") +
+  facet_wrap(~ COWID, ncol = 2, scales = 'free_y') +
+  labs(title = challenge_name,
+      y = 'Daily milk yield, L/d', x = 'Calendar Date', colour = 'Flagged') +
+  theme(legend.position = "top",
+        plot.title = element_text(size = 18, face = "bold", hjust = 0.5, colour = challenge_colour),
+        #Axis text
+        axis.text.x = element_text(angle = 45, size = 14, vjust = 1, hjust = 1),
+        axis.text.y = element_text(size = 14),
+        #Axis titles
+        axis.title = element_text(size = 16),
+        #Facets
+        strip.text = element_text(size = 14, face = 'bold', colour = 'white'),
+        panel.spacing = unit(1, 'lines'),
+        #Background
+        panel.background = element_blank(),
+        plot.background = element_blank(),
+        strip.background = element_rect(fill = challenge_colour, colour = 'black'),
+        #Remove y grid
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        #Borders
+        panel.border = element_rect(color = 'black', fill = NA),
+         #Legend
+        legend.text = element_text(size = 16),
+        legend.title = element_text(size = 16),
+        #Axis Lines
+        axis.line.x = element_line(colour = "black", linewidth = 0.6),
+        axis.line.y = element_line(colour = "black", linewidth = 0.6),
+        axis.ticks = element_line(colour = "black", linewidth = 0.6))
+  })
+
+walk(challenge_plots_milk, function(p) {
+print(p)
+cat("\n\n<br><br><br>\n\n")
+})
+
+```
+
+## This week's Flagged Cows - Based on Daily Milk Yield
+
+<br>
+
+>There is a ~5 day lag in data coming from the milk meters into Snowflake, and therefore, the flagged cows represent those flagged in the previous ~10 days but may not include more recent data.
+
+```{r flaggedcowsmilk, echo=FALSE, message=FALSE, warning=FALSE}
+
+flag_cows_milk <- function(data,
+                         date = Date2,
+                         cow_id = COWID,
+                         milkyield = MilkWt,
+                         high = high,
+                         low = low,
+                         trt = CHALLENGE3,
+                         flagged = flagged) {
+  
+  result <- data %>%
+    ungroup() %>%
+    filter({{flagged}} == TRUE & {{date}} >= Sys.Date() - 10,
+           {{date}} <= Sys.Date()) %>%
+    select(
+      {{ date }},
+      {{ cow_id }},
+      {{ trt }},
+      {{ milkyield }},
+      {{ high }},
+      {{ low }},
+      {{ flagged }}
+    ) %>% 
+    arrange({{ cow_id }}, {{ date }})
+  
+  if (nrow(result) == 0) {
+    message(
+      paste("No cows flagged on", Sys.Date() - 1)
+    )
+    
+    return(invisible(NULL))
+    
+  } else {
+    return(result)
+  }
+}
+
+flaggedcows <- flag_cows_milk(
+  dailychallenge_milk,
+  date = Date2,
+  cow_id = COWID,
+  trt = CHALLENGE3,
+  milkyield = MilkWt,
+  high = high,
+  low = low,
+  flagged = flagged
+)
+
+if (!is.null(flaggedcows)) {
+  
+  kable(
+    flaggedcows,
+    col.names = c(
+      "Date",
+      "Cow ID",
+      "Treatment",
+      "Milk yield, L/d",
+      'High',
+      'Low',
+      'Flagged'
+    ),
+    caption = "<b>Cows flagged in the previous 10 days due to their milk yield being +/- 20% from their mean baseline 2 weeks before trial start. High is TRUE indicates a higher than baseline value was flagged and Low is TRUE indicates a lower than baseline value was flagged.<b>",
+    align = c("l", "l", "l", 'l', 'l', "c", "c")
+  ) %>%
+    kable_classic(
+      full_width = TRUE,
+      font_size = 16,
+      html_font = "Arial"
+    ) %>%
+    row_spec(0, bold = TRUE)
+}
+
+```
+
