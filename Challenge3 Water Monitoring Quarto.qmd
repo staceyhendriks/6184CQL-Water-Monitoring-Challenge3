@@ -569,7 +569,7 @@ flag_cows <- function(data,
   }
 }
 
-flaggedcows <- flag_cows(
+flagged_cows_water <- flag_cows(
   dailychallenge,
   date = Date,
   cow_id = COWID,
@@ -580,10 +580,10 @@ flaggedcows <- flag_cows(
   flagged = flagged
 )
 
-if (!is.null(flaggedcows)) {
+if (!is.null(flagged_cows_water)) {
   
   kable(
-    flaggedcows,
+    flagged_cows_water,
     col.names = c(
       "Date",
       "Cow ID",
@@ -829,7 +829,7 @@ flag_cows_milk <- function(data,
   }
 }
 
-flaggedcows <- flag_cows_milk(
+flagged_cows_milk <- flag_cows_milk(
   dailychallenge_milk,
   date = Date2,
   cow_id = COWID,
@@ -840,10 +840,10 @@ flaggedcows <- flag_cows_milk(
   flagged = flagged
 )
 
-if (!is.null(flaggedcows)) {
+if (!is.null(flagged_cows_milk)) {
   
   kable(
-    flaggedcows,
+    flagged_cows_milk,
     col.names = c(
       "Date",
       "Cow ID",
