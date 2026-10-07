@@ -1,56 +1,46 @@
----
+
+--- 
 title: "CQL 2026 Challenge 3 - Monitoring Summary"
-format:
-  html:
+output: 
+  html_document:
     theme: flatly
     toc: true
-    toc-location: left
-    toc-depth: 3
-    number-sections: true
-date: today
-date-format: "YYYY-MM-DD HH:mm"
-execute:
-  echo: false
-  warning: false
-  message: false
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+date: "`r format(Sys.time(),'%Y-%m-%d %H:%M', tz='Pacific/Auckland')`"
 ---
 
-\*\*Last refreshed:\*\* \`r format(report_time, "%d %B %Y, %H:%M")\` NZ time
-
-```{r}
-
-#| label: load-libraries
-#| include: false
+```{r loadlibraries, include = FALSE}
 
 library(tidyverse)
 library(odbc)
 library(DBI)
 library(lubridate)
 library(kableExtra)
+library(rmarkdown)
+library(bookdown)
 library(knitr)
 library(tables)
 library(tibble)
+library(dplyr)
 
-# smaXtec API
+#smaxtec API
 library(httr)
 library(rlist)
 library(jsonlite)
+library(purrr)
 
-knitr::opts_chunk$set(
-  warning = FALSE,
-  message = FALSE
-)
+#snowflake
+library(odbc)
+library(DBI)
 
-# Explicit NZ date/time for automated rendering
-report_time <- with_tz(Sys.time(), "Pacific/Auckland")
-report_date <- as.Date(report_time)
 
 ```
 
-```{r}
+```{r tribblechallenge3, include = FALSE}
 
-#| label: challenge-3-cows
-#| include: false
+#Challenge 3 Treatments
 
 challenge3_cows <- tribble(
   ~COWID, ~BIRTHID,       ~SMAXTEC_ID, ~CHALLENGE3,
@@ -127,39 +117,45 @@ challenge3_cows <- tribble(
 
 ```
 
-```{r}
+```{r apismaxtecconnect, include = FALSE}
 
-#| label: api-smaxtec-connect
-#| include: false
+#Basic testing
+#https://api.smaxtec.com/documentation/integration/authentication/
 
-uid <- Sys.getenv("SMAXTEC_USER")
-pw <- Sys.getenv("SMAXTEC_PASSWORD")
+# Get security token
 
-if (uid == "" || pw == "") {
-  stop("smaXtec credentials are missing.")
-}
+#Stores your password in an environment variable called AG_API_PW.
+Sys.setenv(AG_API_PW="smaxtec_cql6184!")
+uid <-"stacey.hendriks@dairynz.co.nz"
 
+#Sends an HTTP POST request to smaXtec.
 resp <- POST("https://api.smaxtec.com/integration/v2/users/session_token?",
-             query = list(user = uid, password = pw))
+             query = list(user = uid, password = Sys.getenv("AG_API_PW")))
+
+print(status_code(resp))
 
 stop_for_status(resp)
 
 token <- content(resp)$token
 
+cat("Token received:", !is.null(token), "\n")
+cat("Token length:", nchar(token), "\n")
 
 ```
 
-```{r}
+```{r apismaxtecload, include = FALSE}
 
-#| label: api-smaxtec-load
-#| include: false
+# Get metrics and animal data [for organisation 5fa1d66ea4a136b0b30df2b1]
 
 to_date            <-"2026-12-12T00:00:00"
 from_date          <-"2026-08-30T00:00:00"
 aggregation_period <-"hourly"
 timezone           <-"Pacific/Auckland"
 timestamp_format   <-"iso"
+# Metrics to pull down 
 metric <-"water_intake"
+
+#Need to create a loop that for this last step cycles through each animal you want data for as well as each metric
 
 get_smaxtec_data<-function(animal_id, metric, token){
   
@@ -208,6 +204,8 @@ purrr::map_dfr(
          )
 }
 
+#Pull trial cows
+
 water_data <- purrr::map_dfr(
   challenge3_cows$SMAXTEC_ID,
   ~ get_smaxtec_data(
@@ -220,16 +218,16 @@ water_data <- purrr::map_dfr(
 
 ```
 
-```{r}
-
-#| label: setup-script
-#| include: false
+```{r setupscript, include = FALSE}
 
 knitr::opts_chunk$set(warning = FALSE, message = FALSE)
 
+#DairyNZ Colours
 dairynz<-c("#00461e", "#ebb928", "#00d7ff", "#38A49A", "#fcfdfe", "#7FEBFF",  "#F5DC93", '#70f50a', 'black', '#3c9628', '#CDE9D9')
 
 CalvingStart <-ymd_hms("2026-07-01 00:00:00")
+
+#Combine with cow list and check cow numbers
 
 water_data1<-water_data %>% 
   left_join(challenge3_cows, by = c('animal_id' = 'SMAXTEC_ID')) %>% 
@@ -245,30 +243,23 @@ water_data1<-water_data %>%
 
 First water intake was summarised for each cow daily and then summarised at the herd level
 
-```{r}
+```{r challengemonitor, echo=FALSE, message=FALSE, warning=FALSE}
 
-#| label: challenge-monitor
-#| echo: false
+# Water Intake Data - Digital Cows Only
+
+#Check all cows data available - 66 in dataset
 
 ncows<-water_data1 %>% 
   distinct(COWID, CHALLENGE3)
 
-peakvalues<-water_data1 %>%
-  filter(hour == 17) %>% 
-  mutate(Week = isoweek(Date)) %>% 
-  group_by(COWID, Week) %>% 
-  mutate(WeekStartDate = min(Date)) %>% 
-  ungroup() %>% 
-  group_by(WeekStartDate, Date, hour) %>% 
-  summarise(sum = sum(value)) %>% 
-  group_by(WeekStartDate, hour) %>% 
-  summarise(meanpeak = mean(sum)) %>% 
-  select(c(WeekStartDate, meanpeak))
+#No. of hourly values - Only complete days included
 
 hourlyvalues<-water_data1 %>% 
   group_by(COWID, Date) %>% 
   summarise(n= n()) %>% 
   filter(n>=23)
+
+#Summarise daily drinking at a cow level
 
 smaxtecWaterIntake<-water_data1 %>% 
   semi_join(hourlyvalues) %>% 
@@ -282,6 +273,8 @@ smaxtecWaterIntake<-water_data1 %>%
             min = min(value),
             max = max(value))
 
+#Summarise at the group level by week
+
 averagesbyweek<-smaxtecWaterIntake %>% 
   group_by(WeekStartDate) %>% 
   summarise(ndays = n_distinct(Date),
@@ -292,20 +285,15 @@ averagesbyweek<-smaxtecWaterIntake %>%
             p90 = quantile(sum, 0.9),
             min = min(sum),
             max = max(sum),
-            cv = (sd/mean)*100) %>% 
-  left_join(peakvalues)
-
+            cv = (sd/mean)*100)
 
 ```
 
-```{r}
+```{r herdwater, echo = FALSE}
 
-#| label: herd-water
-#| echo: false
-
-kable(averagesbyweek, col.names = c('Week Start Date', 'N Days', 'Mean', 'Median', 'SD', 'P10', 'P90', 'Min', 'Max', 'CV', 'Peak'), 
-      caption = '<b>Summary data for individual cow water intake (L/cow per d) for the Digital Welfare Indicators herd from the 1st September.<b>', align = c('l', rep('c', 10))) %>% 
-  add_header_above(c(" " = 1, "Water intake (L/cow per d)" = 9, 'Herd intake' = 1), bold = TRUE) %>% 
+kable(averagesbyweek, col.names = c('Week Start Date', 'N Days', 'Mean', 'Median', 'SD', 'P10', 'P90', 'Min', 'Max', 'CV'), 
+      caption = '<b>Summary data for individual cow water intake (L/cow per d) for the Digital Welfare Indicators herd from the 1st September.<b>', align = c('l', rep('c', 9))) %>% 
+  add_header_above(c(" " = 1, "Water intake (L/cow per d)" = 9), bold = TRUE) %>% 
   kable_classic(full_width = T, font_size = 16, html_font = 'Arial') %>% 
   row_spec(c(0), bold=T)
 
@@ -317,10 +305,7 @@ kable(averagesbyweek, col.names = c('Week Start Date', 'N Days', 'Mean', 'Median
 
 First water intake was summarised for each cow daily and then summarised at the challenge group level
 
-```{r}
-
-#| label: group-monitor
-#| include: false
+```{r groupmonitor, include = FALSE}
 
 #Summarise at the group level by week
 
@@ -337,10 +322,7 @@ averagesbyweek_challenge<-smaxtecWaterIntake %>%
 
 ```
 
-```{r}
-
-#| label: group-monitor
-#| echo: false
+```{r groupwater, echo = FALSE}
 
 kable(averagesbyweek_challenge, col.names = c('Week Start Date', 'Challenge Grp', 'Mean', 'Median', 'SD', 'P10', 'P90', 'Min', 'Max', 'CV'), 
       caption = '<b>Summary data for individual cow water intake (L/cow per d) for the Digital Welfare Indicators herd from the 1st September.<b>', align = c(rep('l', 2), rep('c', 8))) %>% 
@@ -352,15 +334,7 @@ kable(averagesbyweek_challenge, col.names = c('Week Start Date', 'Challenge Grp'
 
 <br>
 
-```{r}
-
-#| label: weekly-monitor-figure
-#| echo: false
-#| results: asis
-#| fig.align: center
-#| fig.cap: Weekly mean individual cow water intake at group level from Challenge 3
-#| fig.height: 12
-#| fig.width: 16
+```{r weeklymonitorfigure, echo = FALSE, results= 'asis', fig.align='center', fig.cap = 'Weekly mean individual cow water intake at group level from Challenge 3', fig.height=12, fig.width=16}
 
 smaxtecWaterIntake %>% 
   group_by(WeekStartDate, CHALLENGE3) %>% 
@@ -368,7 +342,7 @@ smaxtecWaterIntake %>%
             mean = mean(sum),
             sd = sd(sum),
             sem = sd/sqrt(ndays)) %>% 
-  filter(if (report_date >= as.Date('2026-11-02')) {
+  filter(if (Sys.Date() >= as.Date('2026-11-02')) {
     WeekStartDate >= as.Date('2026-10-26') 
   } else {
     TRUE
@@ -413,12 +387,11 @@ smaxtecWaterIntake %>%
 
 <br>
 
-If a cow’s daily water intake deviates from her own individual baseline median by more than two times her own baseline CV, expressed as an absolute percentage of her baseline median, she will be flagged for monitoring for another 24 h. If she does not return to her median baseline in 24 h, she will be removed from the 5-day exposure replicate.
+If a cow’s daily water intake deviates from her own individual baseline median by more than two times her own baseline CV, expressed as an absolute percentage of her baseline median, she will be flagged for monitoring for another 24 h. If she does not return to her median baseline in 24 h, she will be removed from the 5-day exposure replicate. 
 
-```{r}
+```{r prebaseline, echo=FALSE, message=FALSE, warning=FALSE}
 
-#| label: pre-baseline
-#| echo: false
+#Summarise daily drinking at a cow level
 
 smaxtecWaterIntake1<-water_data1 %>% 
   semi_join(hourlyvalues) %>%
@@ -434,6 +407,7 @@ smaxtecWaterIntake1<-water_data1 %>%
             min = min(value, na.rm=T),
             max = max(value, na.rm=T))
 
+#Summarise baseline drinking at cow level and filter baseline once it's the 6th November 2026
 
 averagebaseline<-smaxtecWaterIntake1 %>% 
   group_by(COWID, TIMEPERIOD, PERIODSTARTDATE) %>% 
@@ -442,11 +416,14 @@ averagebaseline<-smaxtecWaterIntake1 %>%
             sd = sd(sum),
             cv = (sd/mean)*100) %>% 
   arrange(COWID) %>% 
+  #Determine upper limits
   mutate(upper_limit = median + ((2*cv)/100 * median),
          lower_limit = median - ((2*cv)/100 * median)) %>% 
-  filter(if (report_date >= as.Date("2026-11-20")) {
+  filter(if (Sys.Date() >= as.Date("2026-11-20")) {
          TIMEPERIOD == 'Baseline'
           } else { TRUE })
+
+#Challenge data
 
 dailychallenge<-water_data1 %>% 
   semi_join(hourlyvalues) %>%
@@ -460,19 +437,11 @@ dailychallenge<-water_data1 %>%
   
 ```
 
-> **Prior to the 6th November**, the baseline is a pre-experimental baseline of all values between the 2026-08-31 to `r report_date`.
+>**Prior to the 6th November**, the baseline is a pre-experimental baseline of all values between the 2026-08-31 to `r Sys.Date()`.
 
-> **Inclusive of and after the 20th November**, the baseline is the actual baseline from the 2026-11-06 to 2026-11-19.
+>**Inclusive of and after the 20th November**, the baseline is the actual baseline from the 2026-11-06 to 2026-11-19.
 
-```{r}
-
-#| label: daily-monitor
-#| echo: false
-#| results: asis
-#| fig.align: center
-#| fig.cap: Daily individual cow water intake from Challenge 3 start relative to their individual 2 week pre-treatment baseline for the previous 7 days
-#| fig.height: 35
-#| fig.width: 10
+```{r dailymonitor, echo = FALSE, results= 'asis', fig.align='center', fig.cap = 'Daily individual cow water intake from Challenge 3 start relative to their individual 2 week pre-treatment baseline for the previous 7 days', fig.height=35, fig.width=10}
 
 challenge_colours <- c(
   "Control" = "orange",
@@ -482,7 +451,7 @@ challenge_colours <- c(
 
 challenge_plots<-dailychallenge %>% 
   ungroup() %>% 
-  filter(Date >= report_date - 7 & Date <= report_date) %>% 
+  filter(Date >= Sys.Date() - 7 & Date <= Sys.Date()) %>% 
   arrange(CHALLENGE3, COWID, Date) %>% 
   group_split(CHALLENGE3) %>% 
   map(function(df) {
@@ -503,19 +472,27 @@ challenge_plots<-dailychallenge %>%
       y = 'Water intake, L/d', x = 'Calendar Date', colour = 'Flagged') +
   theme(legend.position = "top",
         plot.title = element_text(size = 18, face = "bold", hjust = 0.5, colour = challenge_colour),
+        #Axis text
         axis.text.x = element_text(angle = 45, size = 14, vjust = 1, hjust = 1),
         axis.text.y = element_text(size = 14),
+        #Axis titles
         axis.title = element_text(size = 16),
+        #Facets
         strip.text = element_text(size = 14, face = 'bold', colour = 'white'),
         panel.spacing = unit(1, 'lines'),
+        #Background
         panel.background = element_blank(),
         plot.background = element_blank(),
         strip.background = element_rect(fill = challenge_colour, colour = 'black'),
+        #Remove y grid
         panel.grid.major = element_blank(), 
         panel.grid.minor = element_blank(),
+        #Borders
         panel.border = element_rect(color = 'black', fill = NA),
+         #Legend
         legend.text = element_text(size = 16),
         legend.title = element_text(size = 16),
+        #Axis Lines
         axis.line.x = element_line(colour = "black", linewidth = 0.6),
         axis.line.y = element_line(colour = "black", linewidth = 0.6),
         axis.ticks = element_line(colour = "black", linewidth = 0.6))
@@ -530,10 +507,7 @@ cat("\n\n<br><br><br>\n\n")
 
 ## Today's Flagged Cows - Based on Water Intakes
 
-```{r}
-
-#| label: flagged-cows
-#| echo: false
+```{r flaggedcows, echo=FALSE, message=FALSE, warning=FALSE}
 
 flag_cows <- function(data,
                          date = Date,
@@ -546,7 +520,7 @@ flag_cows <- function(data,
   
   result <- data %>%
     ungroup() %>%
-    filter({{flagged}} == TRUE & {{date}} == report_date - 1) %>%
+    filter({{flagged}} == TRUE & {{date}} == Sys.Date() - 1) %>%
     select(
       {{ date }},
       {{ cow_id }},
@@ -559,7 +533,7 @@ flag_cows <- function(data,
   
   if (nrow(result) == 0) {
     message(
-      paste("No cows flagged on", report_date - 1)
+      paste("No cows flagged on", Sys.Date() - 1)
     )
     
     return(invisible(NULL))
@@ -569,7 +543,7 @@ flag_cows <- function(data,
   }
 }
 
-flagged_cows_water <- flag_cows(
+flaggedcows <- flag_cows(
   dailychallenge,
   date = Date,
   cow_id = COWID,
@@ -580,10 +554,10 @@ flagged_cows_water <- flag_cows(
   flagged = flagged
 )
 
-if (!is.null(flagged_cows_water)) {
+if (!is.null(flaggedcows)) {
   
   kable(
-    flagged_cows_water,
+    flaggedcows,
     col.names = c(
       "Date",
       "Cow ID",
@@ -593,7 +567,7 @@ if (!is.null(flagged_cows_water)) {
       'Low',
       'Flagged'
     ),
-    caption = paste("**Cows flagged on", report_date - 1, "due to their water intake being +/- 2 CV from their mean baseline 2 weeks before trial start. High is TRUE indicates a higher than baseline value was flagged and Low is TRUE indicates a lower than baseline value was flagged.**"),
+    caption = paste("**Cows flagged on", Sys.Date() - 1, "due to their water intake being +/- 2 CV from their mean baseline 2 weeks before trial start. High is TRUE indicates a higher than baseline value was flagged and Low is TRUE indicates a lower than baseline value was flagged.**"),
     align = c("l", "l", "l", 'l', 'l', "c", "c")
   ) %>%
     kable_classic(
@@ -610,23 +584,24 @@ if (!is.null(flagged_cows_water)) {
 
 # Monitoring Milk Production
 
-```{r}
+```{r setupanimalbase, include=FALSE}
 
-#| label: setup-animalbase
-#| include: false
+#Animal Base
 
-SnowflakeCon1 <- DBI::dbConnect(odbc::odbc(),
-                             Driver       = "SnowflakeDSIIDriver",
-                             Server       = "dnz_economics.australia-east.azure.snowflakecomputing.com",
-                             Authenticator = "Externalbrowser",
-                             UID          = "STACEY.HENDRIKS@DAIRYNZ.CO.NZ",
-                             PW = "",
+SnowflakeCon1 <- DBI::dbConnect(odbc::snowflake(),
+			     account = Sys.getenv("SNOWFLAKE_ACCOUNT"),
+			     authenticator = "SNOWFLAKE_JWT",
+			     UID = Sys.getenv("DBUSER"),
+			     priv_key_file = "rsa_key.p8",
+			     priv_key_file_pwd = Sys.getenv("SNOWFLAKE_KEY_PASSPHRASE"),
                              Database     = "BRONZE",
                              Schema = 'CQL_DIGI_WOODY26',
                              Warehouse    = "COMPUTE_WH",
                              Tracing = 4, 
                              Role = 'ECONOMICS_READER',
 )
+
+#Animal Data
 
 TrialList    <- tbl(SnowflakeCon1, "VW_AB_TRIAL_ANIMAL")
 AnimalList <-tbl(SnowflakeCon1, "VW_AB_ANIMAL") %>% 
@@ -645,12 +620,16 @@ CowsEnrolled<-tbl(SnowflakeCon1, "ANIMAL_WOODY_RANDOMISATION") %>%
   collect() %>% 
   right_join(challenge3_cows)
 
+#Pull Milk Production Data from AnimalBase
+
 CowsEnrolled_sf<-copy_to(SnowflakeCon1, CowsEnrolled, temporary = TRUE, overwrite = TRUE)
 
 AnimalBaseMilk <- tbl(SnowflakeCon1, "VW_AB_LACTATION_MILK_RESULT") %>%
   semi_join(CowsEnrolled_sf, by = "ANIMALID") %>% 
   left_join(CowsEnrolled_sf, by = "ANIMALID") %>%
   collect()
+
+#Milk yield since planned start of calving
 
 AnimalBaseMilk1<-AnimalBaseMilk %>% 
   filter(DATETIMERECORDED >= as.Date("2026-08-30")) %>%
@@ -674,30 +653,34 @@ AnimalBaseMilk1<-AnimalBaseMilk %>%
 
 ```
 
-```{r}
+```{r dailyyields, echo = FALSE}
 
-#| label: daily-yields
-#| echo: false
+#Daily Milk Yields - Baseline
 
 AnimalBaseMilk5 <- AnimalBaseMilk1 %>%
   mutate(PERIODSTARTDATE = min(Date)) %>% 
   filter(is.na(MILKWEIGHTKG) == FALSE) %>%
   group_by(COWID, CHALLENGE3, TIMEPERIOD, PERIODSTARTDATE, Date2) %>%
+  #Mean milk weight per cow
   summarise(MilkWt = sum(MILKWEIGHTKG, na.rm = TRUE), 
             n = n()) %>% 
   filter(n == 2) %>% 
+  #Mean milk weight per cow for baseline
   group_by(COWID, CHALLENGE3, TIMEPERIOD, PERIODSTARTDATE) %>%
   summarise(Avg_MilkWt = mean(MilkWt, na.rm = TRUE),
             SDMilkWt = sd(MilkWt, na.rm = TRUE),
             sem = SDMilkWt / sqrt(sum(!is.na(MilkWt)))) %>%   
-  filter(if (report_date >= as.Date("2026-11-20")) {
+  filter(if (Sys.Date() >= as.Date("2026-11-20")) {
          TIMEPERIOD == 'Baseline'
           } else { TRUE })
+
+#Challenge data - Milk Production
 
 dailychallenge_milk<-AnimalBaseMilk1 %>%
   mutate(PERIODSTARTDATE = min(Date)) %>% 
   filter(is.na(MILKWEIGHTKG) == FALSE) %>%
   group_by(COWID, CHALLENGE3, TIMEPERIOD, PERIODSTARTDATE, Date2) %>%
+  #Mean milk weight per cow
   summarise(MilkWt = sum(MILKWEIGHTKG, na.rm = TRUE), 
             n = n()) %>% 
   filter(n == 2) %>% 
@@ -713,19 +696,11 @@ dailychallenge_milk<-AnimalBaseMilk1 %>%
 
 <br>
 
-> **Prior to the 6th November**, the baseline is a pre-experimental baseline of all values between the 2026-08-31 to `r Sys.Date()`.
+>**Prior to the 6th November**, the baseline is a pre-experimental baseline of all values between the 2026-08-31 to `r Sys.Date()`.
 
-> **Inclusive of the 20th November**, the baseline is the actual baseline from the 2026-11-06 to 2026-11-19.
+>**Inclusive of the 20th November**, the baseline is the actual baseline from the 2026-11-06 to 2026-11-19.
 
-```{r}
-
-#| label: daily-monitor-milk
-#| echo: false
-#| results: asis
-#| fig.align: center
-#| fig.cap: Daily individual cow water milk yields from Challenge 3 start relative to their individual 2 week pre-treatment baseline for the previous 7 days
-#| fig.height: 35
-#| fig.width: 10
+```{r dailymonitormilk, echo = FALSE, results= 'asis', fig.align='center', fig.cap = 'Daily individual cow water milk yields from Challenge 3 start relative to their individual 2 week pre-treatment baseline for the previous 7 days', fig.height=35, fig.width=10}
 
 challenge_colours <- c(
   "Control" = "orange",
@@ -735,7 +710,7 @@ challenge_colours <- c(
 
 challenge_plots_milk<-dailychallenge_milk %>% 
   ungroup() %>% 
-  filter(Date2 >= report_date - 14 & Date2 <= report_date) %>% 
+  filter(Date2 >= Sys.Date() - 14 & Date2 <= Sys.Date()) %>% 
   arrange(CHALLENGE3, COWID, Date2) %>% 
   group_split(CHALLENGE3) %>% 
   map(function(df) {
@@ -756,19 +731,27 @@ challenge_plots_milk<-dailychallenge_milk %>%
       y = 'Daily milk yield, L/d', x = 'Calendar Date', colour = 'Flagged') +
   theme(legend.position = "top",
         plot.title = element_text(size = 18, face = "bold", hjust = 0.5, colour = challenge_colour),
+        #Axis text
         axis.text.x = element_text(angle = 45, size = 14, vjust = 1, hjust = 1),
         axis.text.y = element_text(size = 14),
+        #Axis titles
         axis.title = element_text(size = 16),
+        #Facets
         strip.text = element_text(size = 14, face = 'bold', colour = 'white'),
         panel.spacing = unit(1, 'lines'),
+        #Background
         panel.background = element_blank(),
         plot.background = element_blank(),
         strip.background = element_rect(fill = challenge_colour, colour = 'black'),
+        #Remove y grid
         panel.grid.major = element_blank(), 
         panel.grid.minor = element_blank(),
+        #Borders
         panel.border = element_rect(color = 'black', fill = NA),
+         #Legend
         legend.text = element_text(size = 16),
         legend.title = element_text(size = 16),
+        #Axis Lines
         axis.line.x = element_line(colour = "black", linewidth = 0.6),
         axis.line.y = element_line(colour = "black", linewidth = 0.6),
         axis.ticks = element_line(colour = "black", linewidth = 0.6))
@@ -785,13 +768,9 @@ cat("\n\n<br><br><br>\n\n")
 
 <br>
 
-> There is a \~5 day lag in data coming from the milk meters into Snowflake, and therefore, the flagged cows represent those flagged in the previous \~10 days but may not include more recent data.
+>There is a ~5 day lag in data coming from the milk meters into Snowflake, and therefore, the flagged cows represent those flagged in the previous ~10 days but may not include more recent data.
 
-```{r}
-
-#| label: flagged-cow-milk
-#| echo: false
-
+```{r flaggedcowsmilk, echo=FALSE, message=FALSE, warning=FALSE}
 
 flag_cows_milk <- function(data,
                          date = Date2,
@@ -804,8 +783,8 @@ flag_cows_milk <- function(data,
   
   result <- data %>%
     ungroup() %>%
-    filter({{flagged}} == TRUE & {{date}} >= report_date - 10,
-           {{date}} <= report_date) %>%
+    filter({{flagged}} == TRUE & {{date}} >= Sys.Date() - 10,
+           {{date}} <= Sys.Date()) %>%
     select(
       {{ date }},
       {{ cow_id }},
@@ -819,7 +798,7 @@ flag_cows_milk <- function(data,
   
   if (nrow(result) == 0) {
     message(
-      paste("No cows flagged on", report_date - 1)
+      paste("No cows flagged on", Sys.Date() - 1)
     )
     
     return(invisible(NULL))
@@ -829,7 +808,7 @@ flag_cows_milk <- function(data,
   }
 }
 
-flagged_cows_milk <- flag_cows_milk(
+flaggedcows <- flag_cows_milk(
   dailychallenge_milk,
   date = Date2,
   cow_id = COWID,
@@ -840,10 +819,10 @@ flagged_cows_milk <- flag_cows_milk(
   flagged = flagged
 )
 
-if (!is.null(flagged_cows_milk)) {
+if (!is.null(flaggedcows)) {
   
   kable(
-    flagged_cows_milk,
+    flaggedcows,
     col.names = c(
       "Date",
       "Cow ID",
@@ -865,3 +844,4 @@ if (!is.null(flagged_cows_milk)) {
 }
 
 ```
+

@@ -3,3 +3,7 @@
 .RData
 .Ruserdata
 .Renviron
+rsa_key.p8
+_site/
+.quarto/
+/.quarto/
